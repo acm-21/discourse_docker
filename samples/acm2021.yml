@@ -46,7 +46,7 @@ env:
 
   ## TODO: The domain name this Discourse instance will respond to
   ## Required. Discourse will not work with a bare IP number.
-  DISCOURSE_HOSTNAME: https://acm.sjtu.app
+  DISCOURSE_HOSTNAME: acm.sjtu.app
 
   ## Uncomment if you want the container to be started with the same
   ## hostname (-h option) as specified above (default "$hostname-$config")
