@@ -1,0 +1,14 @@
+#!/bin/bash
+
+CONF="containers/discoursed.yml"
+if [ -e "$CONF" ]; then
+  echo "configuration file already exists; refusing to overwrite."
+  exit 1
+fi
+
+cp samples/acm2021.yml "$CONF"
+while cat "$CONF" | grep "__SECRET__" > /dev/null; do
+  ITEM="$(cat "$CONF" | grep "__SECRET__" | head -1 | awk '{ print $1 }' | awk -F: '{ print $1 }')"
+  SECRET="$(cat .secrets | grep "$ITEM" | awk '{ print $2 }')"
+  sed -i "0,/__SECRET__/s//$SECRET/" "$CONF"
+done

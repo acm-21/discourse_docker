@@ -1,0 +1,25 @@
+<script>
+var re = /^\/c\/site-feedback\/2$/i
+
+api.modifyClass("component:discovery-topics-list", {
+  didInsertElement() {
+    var msgLink = $('[href=\\/messages]')
+    if (msgLink) msgLink.href = '/u/' + Discourse.currentUser.username + '/messages/sent'
+    if (re.test(location.pathname)) setTimeout(function () {
+      var $ = function (sel) { return document.querySelector(sel) }
+      var cT = $('#create-topic')
+      if (cT) {
+        var wrapper = document.createElement('div')
+        wrapper.innerHTML = '<button id="create-pm" class="btn-default btn btn-icon-text ember-view" type="button"><svg class="fa d-icon d-icon-plus svg-icon svg-string" xmlns="http://www.w3.org/2000/svg"><use xlink:href="#plus"></use></svg><span class="d-button-label">新建答疑帖</span></button>'
+        cT.parentElement.insertBefore(wrapper, cT)
+        $('#create-pm').onclick = function () {
+          require('discourse/mixins/open-composer').default.mixins[0].properties.openComposerWithMessageParams.call(
+            { controllerFor: function () { return Discourse.__container__.lookup('controller:composer') } },
+            { recipients: 'moderators', hasGroups: true },
+          )
+        }
+      }
+    }, 100)
+  }
+});
+</script>

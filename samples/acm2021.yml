@@ -1,0 +1,131 @@
+templates:
+  - "templates/postgres.template.yml"
+  - "templates/redis.template.yml"
+  - "templates/web.template.yml"
+  - "templates/web.ratelimited.template.yml"
+## Uncomment these two lines if you wish to add Lets Encrypt (https)
+#  - "templates/web.ssl.template.yml"
+#  - "templates/web.letsencrypt.ssl.template.yml"
+
+expose:
+  - "20081:80"   # http
+# - "20443:443"  # https
+
+params:
+  db_default_text_search_config: "pg_catalog.english"
+
+  ## Set db_shared_buffers to a max of 25% of the total memory.
+  ## will be set automatically by bootstrap based on detected RAM, or you can override
+  db_shared_buffers: "256MB"
+
+  ## can improve sorting performance, but adds memory usage per-connection
+  #db_work_mem: "40MB"
+
+  ## Which Git revision should this container use? (default: tests-passed)
+  #version: tests-passed
+
+env:
+  LC_ALL: en_US.UTF-8
+  LANG: en_US.UTF-8
+  LANGUAGE: en_US.UTF-8
+  DISCOURSE_DEFAULT_LOCALE: zh_CN
+
+  DISCOURSE_USE_S3: true
+  DISCOURSE_S3_REGION: r19260817
+  DISCOURSE_S3_ENDPOINT: https://oss-cn-shanghai.aliyuncs.com
+  DISCOURSE_S3_ACCESS_KEY_ID: __SECRET__
+  DISCOURSE_S3_SECRET_ACCESS_KEY: __SECRET__
+  DISCOURSE_S3_CDN_URL: https://acm2021-production.oss-cn-shanghai.aliyuncs.com
+  DISCOURSE_S3_BUCKET: acm2021-production/discourse
+  DISCOURSE_S3_BACKUP_BUCKET: acm2021-backups
+  DISCOURSE_BACKUP_LOCATION: s3
+
+  ## How many concurrent web requests are supported? Depends on memory and CPU cores.
+  ## will be set automatically by bootstrap based on detected CPUs, or you can override
+  UNICORN_WORKERS: 1
+
+  ## TODO: The domain name this Discourse instance will respond to
+  ## Required. Discourse will not work with a bare IP number.
+  DISCOURSE_HOSTNAME: https://acm.sjtu.app
+
+  ## Uncomment if you want the container to be started with the same
+  ## hostname (-h option) as specified above (default "$hostname-$config")
+  #DOCKER_USE_HOSTNAME: true
+
+  ## TODO: List of comma delimited emails that will be made admin and developer
+  ## on initial signup example 'user1@example.com,user2@example.com'
+  DISCOURSE_DEVELOPER_EMAILS: 'acm-discourse@outlook.com'
+
+  ## TODO: The SMTP mail server used to validate new accounts and send notifications
+  # SMTP ADDRESS, username, and password are required
+  # WARNING the char '#' in SMTP password can cause problems!
+  DISCOURSE_SMTP_ADDRESS: smtp-mail.outlook.com
+  DISCOURSE_SMTP_PORT: 587
+  DISCOURSE_SMTP_USER_NAME: acm-discourse@outlook.com
+  DISCOURSE_SMTP_PASSWORD: __SECRET__
+  DISCOURSE_SMTP_ENABLE_START_TLS: true           # (optional, default true)
+  DISCOURSE_SMTP_DOMAIN: outlook.com
+  DISCOURSE_SMTP_AUTHENTICATION: login
+  DISCOURSE_NOTIFICATION_EMAIL: acm-discourse@outlook.com
+
+  ## If you added the Lets Encrypt template, uncomment below to get a free SSL certificate
+  # LETSENCRYPT_ACCOUNT_EMAIL: me@example.com
+
+  ## The http or https CDN address for this Discourse instance (configured to pull)
+  ## see https://meta.discourse.org/t/14857 for details
+  #DISCOURSE_CDN_URL: https://discourse-cdn.example.com
+  
+  ## The maxmind geolocation IP address key for IP address lookup
+  ## see https://meta.discourse.org/t/-/137387/23 for details
+  DISCOURSE_MAXMIND_LICENSE_KEY: __SECRET__
+
+## The Docker container is stateless; all data is stored in /shared
+volumes:
+  - volume:
+      host: /var/discourse/shared/standalone
+      guest: /shared
+  - volume:
+      host: /var/discourse/shared/standalone/log/var-log
+      guest: /var/log
+
+## Plugins go here
+## see https://meta.discourse.org/t/19157 for details
+hooks:
+  after_code:
+    - exec:
+        cd: $home/plugins
+        cmd:
+          - git clone https://github.com/discourse/docker_manager.git
+          - git clone https://github.com/discourse/discourse-spoiler-alert.git
+          - git clone https://github.com/discourse/discourse-github.git
+          - git clone https://github.com/discourse/discourse-solved.git
+          - git clone https://github.com/discourse/discourse-chat-integration.git
+          - git clone https://github.com/discourse/discourse-math.git
+          - git clone https://github.com/discourse/discourse-cakeday.git
+          - git clone https://github.com/acm-21/discourse-calendar.git
+          - git clone https://github.com/discourse/discourse-checklist.git
+          - git clone https://github.com/discourse/discourse-graphviz.git
+          - git clone https://github.com/discourse/discourse-code-review.git
+          - git clone https://github.com/discourse/discourse-footnote.git
+          - git clone https://github.com/discourse/discourse-reactions.git
+          - git clone https://github.com/discourse/discourse-push-notifications.git
+          - git clone https://github.com/discourse/discourse-shared-edits.git
+          - git clone https://github.com/discourse/discourse-category-banners.git
+          - git clone https://github.com/acm-21/discourse-pm-convert.git
+#          - git clone https://github.com/discourse/sticky-avatars.git
+#          - git clone https://github.com/discourse/unformatted-code-detector.git
+#          - git clone https://github.com/discourse/Discourse-nav-links-component.git
+#          - git clone https://github.com/discourse/DiscoTOC.git
+  after_assets_precompile:
+    - exec:
+        cd: $home
+        cmd:
+          - sudo -E -u discourse bundle exec rake s3:upload_assets
+
+## Any custom commands to run after building
+run:
+  # - exec: echo "Beginning of custom commands"
+  ## If you want to set the 'From' email address for your first registration, uncomment and change:
+  ## After getting the first signup email, re-comment the line. It only needs to run once.
+  - exec: rails r "SiteSetting.notification_email='acm-discourse@outlook.com'"
+  # - exec: echo "End of custom commands"
