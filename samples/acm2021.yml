@@ -35,7 +35,7 @@ env:
   DISCOURSE_S3_ENDPOINT: https://oss-cn-shanghai.aliyuncs.com
   DISCOURSE_S3_ACCESS_KEY_ID: __SECRET__
   DISCOURSE_S3_SECRET_ACCESS_KEY: __SECRET__
-  DISCOURSE_S3_CDN_URL: https://acm2021-production.oss-cn-shanghai.aliyuncs.com
+  DISCOURSE_S3_CDN_URL: //acm2021-production.oss-cn-shanghai.aliyuncs.com
   DISCOURSE_S3_BUCKET: acm2021-production
   DISCOURSE_S3_BACKUP_BUCKET: acm2021-backups
   DISCOURSE_BACKUP_LOCATION: s3
