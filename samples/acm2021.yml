@@ -36,7 +36,7 @@ env:
   DISCOURSE_S3_ACCESS_KEY_ID: __SECRET__
   DISCOURSE_S3_SECRET_ACCESS_KEY: __SECRET__
   DISCOURSE_S3_CDN_URL: https://acm2021-production.oss-cn-shanghai.aliyuncs.com
-  DISCOURSE_S3_BUCKET: acm2021-production/discourse
+  DISCOURSE_S3_BUCKET: acm2021-production
   DISCOURSE_S3_BACKUP_BUCKET: acm2021-backups
   DISCOURSE_BACKUP_LOCATION: s3
 
@@ -127,5 +127,5 @@ run:
   # - exec: echo "Beginning of custom commands"
   ## If you want to set the 'From' email address for your first registration, uncomment and change:
   ## After getting the first signup email, re-comment the line. It only needs to run once.
-  - exec: rails r "SiteSetting.notification_email='acm-discourse@outlook.com'"
+  # - exec: rails r "SiteSetting.notification_email='acm-discourse@outlook.com'"
   # - exec: echo "End of custom commands"
