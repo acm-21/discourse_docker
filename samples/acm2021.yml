@@ -114,10 +114,12 @@ hooks:
           - git clone https://github.com/acm-21/discourse-pm-convert.git
           - git clone https://github.com/acm-21/discourse-onebox-acmoj.git
           - git clone https://github.com/acm-21/discourse-onebox-bilibili.git
+          - git clone https://github.com/acm-21/discourse-shadow-inherit-groups.git
 #          - git clone https://github.com/discourse/sticky-avatars.git
 #          - git clone https://github.com/discourse/unformatted-code-detector.git
 #          - git clone https://github.com/discourse/Discourse-nav-links-component.git
 #          - git clone https://github.com/discourse/DiscoTOC.git
+#          - git clone https://github.com/discourse/discourse-pdf-previews.git
   after_assets_precompile:
     - exec:
         cd: $home
