@@ -1,10 +1,8 @@
 <script>
-var re = /^\/c\/site-feedback\/2$/i
+var re = /\/c\/course\/programming\/10/i
 
 api.modifyClass("component:discovery-topics-list", {
   didInsertElement() {
-    var msgLink = $('[href=\\/messages]')
-    if (msgLink) msgLink.href = '/u/' + Discourse.currentUser.username + '/messages/sent'
     if (re.test(location.pathname)) setTimeout(function () {
       var $ = function (sel) { return document.querySelector(sel) }
       var cT = $('#create-topic')
@@ -15,7 +13,7 @@ api.modifyClass("component:discovery-topics-list", {
         $('#create-pm').onclick = function () {
           require('discourse/mixins/open-composer').default.mixins[0].properties.openComposerWithMessageParams.call(
             { controllerFor: function () { return Discourse.__container__.lookup('controller:composer') } },
-            { recipients: 'moderators', hasGroups: true },
+            { recipients: 'Programming-TAs', hasGroups: true },
           )
         }
       }
