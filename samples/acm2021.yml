@@ -111,6 +111,7 @@ hooks:
           - git clone https://github.com/discourse/discourse-push-notifications.git
           - git clone https://github.com/discourse/discourse-shared-edits.git
           - git clone https://github.com/discourse/discourse-category-banners.git
+          - git clone https://github.com/discourse/discourse-chat.git
           - git clone https://github.com/acm-21/discourse-pm-convert.git
           - git clone https://github.com/acm-21/discourse-onebox-acmoj.git
           - git clone https://github.com/acm-21/discourse-onebox-bilibili.git
