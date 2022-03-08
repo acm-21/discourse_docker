@@ -118,6 +118,7 @@ hooks:
           - git clone https://github.com/acm-21/discourse-onebox-bilibili.git
           - git clone https://github.com/acm-21/discourse-shadow-inherit-groups.git
           - git clone https://github.com/acm-21/discourse-private-replies.git
+          - git clone https://github.com/acm-21/discourse-question-answer.git
 #          - git clone https://github.com/discourse/sticky-avatars.git
 #          - git clone https://github.com/discourse/unformatted-code-detector.git
 #          - git clone https://github.com/discourse/Discourse-nav-links-component.git
