@@ -3,9 +3,6 @@ env:
   RAILS_ENV: 'production'
   UNICORN_WORKERS: 3
   UNICORN_SIDEKIQS: 1
-  # this gives us very good cache coverage, 96 -> 99
-  # in practice it is 1-2% perf improvement
-  RUBY_GLOBAL_METHOD_CACHE_SIZE: 131072
   # stop heap doubling in size so aggressively, this conserves memory
   RUBY_GC_HEAP_GROWTH_MAX_SLOTS: 40000
   RUBY_GC_HEAP_INIT_SLOTS: 400000
@@ -21,12 +18,16 @@ params:
 
   home: /var/www/discourse
   upload_size: 10m
+  nginx_worker_connections: 4000
 
 run:
   - exec: thpoff echo "thpoff is installed!"
-  - exec: /usr/local/bin/ruby -e 'if ENV["DISCOURSE_SMTP_ADDRESS"] == "smtp.example.com"; puts "Aborting! Mail is not configured!"; exit 1; end'
-  - exec: /usr/local/bin/ruby -e 'if ENV["DISCOURSE_HOSTNAME"] == "discourse.example.com"; puts "Aborting! Domain is not configured!"; exit 1; end'
-  - exec: /usr/local/bin/ruby -e 'if (ENV["DISCOURSE_CDN_URL"] || "")[0..1] == "//"; puts "Aborting! CDN must have a protocol specified. Once fixed you should rebake your posts now to correct all posts."; exit 1; end'
+  - exec:
+      tag: precompile
+      cmd:
+        - /usr/local/bin/ruby -e 'if ENV["DISCOURSE_SMTP_ADDRESS"] == "smtp.example.com"; puts "Aborting! Mail is not configured!"; exit 1; end'
+        - /usr/local/bin/ruby -e 'if ENV["DISCOURSE_HOSTNAME"] == "discourse.example.com"; puts "Aborting! Domain is not configured!"; exit 1; end'
+        - /usr/local/bin/ruby -e 'if (ENV["DISCOURSE_CDN_URL"] || "")[0..1] == "//"; puts "Aborting! CDN must have a protocol specified. Once fixed you should rebake your posts now to correct all posts."; exit 1; end'
   # TODO: move to base image (anacron can not be fired up using rc.d)
   - exec: rm -f /etc/cron.d/anacron
   - file:
@@ -57,6 +58,12 @@ run:
         # postgres
         cd $home
         chown -R discourse:www-data /shared/log/rails
+        if [[ -z "$PRECOMPILE_ON_BOOT" ]]; then
+          PRECOMPILE_ON_BOOT=1
+        fi
+        if [ -f /usr/local/bin/create_db ] && [ "$CREATE_DB_ON_BOOT" = "1" ]; then /usr/local/bin/create_db; fi;
+        if [ "$MIGRATE_ON_BOOT" = "1" ]; then su discourse -c 'bundle exec rake db:migrate'; fi
+        if [ "$PRECOMPILE_ON_BOOT" = "1" ]; then SKIP_EMBER_CLI_COMPILE=1 su discourse -c 'bundle exec rake assets:precompile'; fi
         LD_PRELOAD=$RUBY_ALLOCATOR HOME=/home/discourse USER=discourse exec thpoff chpst -u discourse:www-data -U discourse:www-data bundle exec config/unicorn_launcher -E production -c config/unicorn.conf.rb
 
   - file:
@@ -85,12 +92,30 @@ run:
       cd: $home
       hook: code
       cmd:
-        - git reset --hard
-        - git clean -f
-        - git remote set-branches --add origin main
-        - git remote set-branches origin $version
-        - git fetch --depth 1 origin $version
-        - git checkout $version
+        - sudo -H -E -u discourse git reset --hard
+        - sudo -H -E -u discourse git clean -f
+        # TODO Remove the special handling of shallow clones when everyone uses images without that clone type
+        - |-
+          sudo -H -E -u discourse bash -c '
+            set -o errexit
+            if [ $(git rev-parse --is-shallow-repository) == "true" ]; then
+                git remote set-branches --add origin main
+                git remote set-branches origin $version
+                git fetch --depth 1 origin $version
+            else
+                git fetch --tags --prune-tags --prune --force origin
+            fi
+          '
+        - |-
+          sudo -H -E -u discourse bash -c '
+            set -o errexit
+            if [[ $(git symbolic-ref --short HEAD) == $version ]] ; then
+                git pull
+            else
+                git -c advice.detachedHead=false checkout $version
+            fi
+          '
+        - sudo -H -E -u discourse git config user.discourse-version $version
         - mkdir -p tmp
         - chown discourse:www-data tmp
         - mkdir -p tmp/pids
@@ -105,7 +130,7 @@ run:
         - bash -c "ln    -s           /shared/tmp/{backups,restores} $home/tmp"
         - chown -R discourse:www-data /shared/log/rails /shared/uploads /shared/backups /shared/tmp
         # scrub broken symlinks from plugins that have been removed
-        - find public/plugins/ -maxdepth 1 -xtype l -delete
+        - "[ ! -d public/plugins ] || find public/plugins/ -maxdepth 1 -xtype l -delete"
 
   - exec:
       cmd:
@@ -135,6 +160,11 @@ run:
       from: /client_max_body_size.+$/
       to: client_max_body_size $upload_size ;
 
+  - replace:
+      filename: "/etc/nginx/nginx.conf"
+      from: /worker_connections.+$/
+      to: worker_connections $nginx_worker_connections ;
+
   - exec:
       cmd: echo "done configuring web"
       hook: web_config
@@ -149,31 +179,51 @@ run:
 
   - exec:
       cd: $home
+      hook: yarn
+      cmd:
+        - |-
+          if [ "$version" != "tests-passed" ]; then
+            rm -rf app/assets/javascripts/node_modules
+          fi
+        - su discourse -c 'yarn config set network-timeout 60000 -g'
+        - su discourse -c 'yarn install --frozen-lockfile && yarn cache clean'
+
+  - exec:
+      cd: $home
       hook: bundle_exec
       cmd:
-        - su discourse -c 'bundle install --deployment --retry 3 --jobs 4 --verbose --without test development'
+        - su discourse -c 'bundle install --jobs $(($(nproc) - 1)) --retry 3'
 
   - exec:
       cd: $home
       cmd:
-        - "[ ! -d 'node_modules' ] || su discourse -c 'yarn install --production && yarn cache clean'"
-
-  - exec:
-      cd: $home
-      cmd:
-        - su discourse -c 'bundle exec rake plugin:pull_compatible_all'
+        - su discourse -c 'LOAD_PLUGINS=0 bundle exec rake plugin:pull_compatible_all'
+      hook: plugin_compatibility
       raise_on_fail: false
 
   - exec:
       cd: $home
+      tag: migrate
       hook: db_migrate
       cmd:
         - su discourse -c 'bundle exec rake db:migrate'
   - exec:
       cd: $home
+      tag: build
+      hook: assets_precompile_build
+      cmd:
+        - su discourse -c 'bundle exec rake assets:precompile:build'
+  - exec:
+      cd: $home
+      tag: precompile
       hook: assets_precompile
       cmd:
-        - su discourse -c 'bundle exec rake themes:update assets:precompile'
+        - su discourse -c 'SKIP_EMBER_CLI_COMPILE=1 bundle exec rake themes:update assets:precompile'
+  - replace:
+      tag: precompile
+      filename: /etc/service/unicorn/run
+      from: PRECOMPILE_ON_BOOT=1
+      to: "PRECOMPILE_ON_BOOT=0"
 
   - file:
      path: /usr/local/bin/discourse
@@ -236,6 +286,7 @@ run:
                 missingok
                 delaycompress
                 compress
+                sharedscripts
                 postrotate
                 sv 1 unicorn
                 endscript
@@ -259,7 +310,7 @@ run:
 
   # move state out of the container this fancy is done to support rapid rebuilds of containers,
   # we store anacron and logrotate state outside the container to ensure its maintained across builds
-  # later move this snipped into an intialization script
+  # later move this snipped into an initialization script
   # we also ensure all the symlinks we need to /shared are in place in the correct structure
   # this allows us to bootstrap on one machine and then run on another
   - file:
@@ -380,7 +431,7 @@ run:
           <!-- <policy domain="resource" name="throttle" value="0"/> -->
           <!-- <policy domain="resource" name="time" value="3600"/> -->
           <!-- <policy domain="coder" rights="none" pattern="MVG" /> -->
-          <policy domain="module" rights="none" pattern="{PS,PS2,PS3,EPS,PDF,XPS}" />
+          <policy domain="module" rights="none" pattern="{PS,PS2,PS3,EPS,XPS}" />
           <!-- <policy domain="delegate" rights="none" pattern="HTTPS" /> -->
           <!-- <policy domain="path" rights="none" pattern="@*" /> -->
           <!-- <policy domain="cache" name="memory-map" value="anonymous"/> -->

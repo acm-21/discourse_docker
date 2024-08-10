@@ -2,20 +2,25 @@
 set -e
 
 # version check: https://redis.io/
-REDIS_VERSION=6.2.6
-REDIS_HASH="5b2b8b7a50111ef395bf1c1d5be11e6e167ac018125055daa8b5c2317ae131ab"
+REDIS_VERSION=7.0.7
+REDIS_HASH="8d327d7e887d1bb308fc37aaf717a0bf79f58129e3739069aaeeae88955ac586"
 
 cd /tmp
 # Prepare Redis source.
-wget http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz
+wget -q http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz
 sha256sum redis-$REDIS_VERSION.tar.gz
 echo "$REDIS_HASH redis-$REDIS_VERSION.tar.gz" | sha256sum -c
 
 tar zxf redis-$REDIS_VERSION.tar.gz
 cd redis-$REDIS_VERSION
 
+# aarch64 compatibility
+if uname -m | grep -qi 'aarch64'; then
+  export JEMALLOC_CONFIGURE_OPTS="--with-lg-page=16"
+fi
+
 # Building and installing binaries.
-make && make install PREFIX=/usr
+make -j"$(nproc)" BUILD_TLS=yes && make install PREFIX=/usr
 
 # Add `redis` user and group.
 adduser --system --home /var/lib/redis --quiet --group redis || true

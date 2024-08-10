@@ -60,7 +60,7 @@ connect_to_port () {
       esac
     done
   else
-    echo -e "HTTP/1.1 200 OK\n\n $VERIFY" | nc -w 4 -l -p $PORT >/dev/null 2>&1 &
+    echo -e "HTTP/1.1 200 OK\n\n $VERIFY" | nc -w 4 -l $PORT >/dev/null 2>&1 &
     if curl --proto =http -s $HOST:$PORT --connect-timeout 3 | grep $VERIFY >/dev/null 2>&1; then
       return 0
     else
@@ -149,10 +149,10 @@ check_OS() {
 }
 
 ##
-## OS X available memory
+## macOS available memory
 ##
-check_osx_memory() {
-  echo `free -m | awk '/Mem:/ {print $2}'`
+check_macos_memory() {
+  echo $(($(memory_pressure | head -n 1 | awk '{ print $4 }') / 1024 / 1024 / 1024))
 }
 
 ##
@@ -174,11 +174,10 @@ check_linux_memory() {
 ## Do we have enough memory and disk space for Discourse?
 ##
 check_disk_and_memory() {
-
   os_type=$(check_OS)
   avail_mem=0
   if [ "$os_type" == "Darwin" ]; then
-    avail_mem=$(check_osx_memory)
+    avail_mem=$(check_macos_memory)
   else
     avail_mem=$(check_linux_memory)
   fi
@@ -254,11 +253,11 @@ scale_ram_and_cpu() {
   avail_cores=0
   os_type=$(check_OS)
   if [ "$os_type" == "Darwin" ]; then
-    avail_gb=$(check_osx_memory)
+    avail_gb=$(check_macos_memory)
     avail_cores=`sysctl hw.ncpu | awk '/hw.ncpu:/ {print $2}'`
   else
     avail_gb=$(check_linux_memory)
-    avail_cores=$((`awk '/cpu cores/ {print $4;exit}' /proc/cpuinfo`*`sort /proc/cpuinfo | uniq | grep -c "physical id"`))
+    avail_cores=`lscpu --parse=core | egrep -v ^# | sort -u | wc -l`
   fi
   echo "Found ${avail_gb}GB of memory and $avail_cores physical CPU cores"
 
@@ -344,32 +343,40 @@ check_port() {
 ## read a variable from the config file
 ##
 read_config() {
-  config_line=`egrep "^  #?$1:" $web_file`
+  config_line=`grep -E "^  #?$1:" $web_file`
   read_config_result=`echo $config_line | awk  -F":" '{print $2}'`
   read_config_result=`echo $read_config_result | sed "s/^\([\"']\)\(.*\)\1\$/\2/g"`
 }
 
 read_default() {
-  config_line=`egrep "^  #?$1:" samples/standalone.yml`
+  config_line=`grep -E "^  #?$1:" samples/standalone.yml`
   read_default_result=`echo $config_line | awk  -F":" '{print $2}'`
   read_default_result=`echo $read_config_result | sed "s/^\([\"']\)\(.*\)\1\$/\2/g"`
 }
 
-assert_maxmind_license_key() {
+assert_maxmind_envs() {
   if  ! grep DISCOURSE_MAXMIND_LICENSE_KEY $web_file >/dev/null 2>&1
   then
-    echo "Adding MAXMIND placeholder to $web_file"
+    echo "Adding MAXMIND_LICENSE_KEY placeholder to $web_file"
     sed -i '/^.*LETSENCRYPT_ACCOUNT_EMAIL.*/a \ \ #DISCOURSE_MAXMIND_LICENSE_KEY: 1234567890123456' $web_file
   fi
-  if  ! grep DISCOURSE_MAXMIND_LICENSE_KEY $web_file >/dev/null 2>&1
+
+  if  ! grep DISCOURSE_MAXMIND_ACCOUNT_ID $web_file >/dev/null 2>&1
+  then
+    echo "Adding MAXMIND_ACCOUNT_ID placeholder to $web_file"
+    sed -i '/^.*LETSENCRYPT_ACCOUNT_EMAIL.*/a \ \ #DISCOURSE_MAXMIND_ACCOUNT_ID: 123456' $web_file
+  fi
+
+
+  if ! grep -e DISCOURSE_MAXMIND_LICENSE_KEY -e DISCOURSE_MAXMIND_ACCOUNT_ID $web_file >/dev/null 2>&1
   then
     cat <<EOF
 
-    Adding DISCOURSE_MAXMIND_LICENSE_KEY to $web_file has failed! This
-    indicates either that your $web_file is very old or otherwise not
-    what the script expects or that there is a bug in this script. The
-    best solution for a novice is to delete $web_file and start over.
-    An expert might prefer to edit $web_file by hand.
+    Adding DISCOURSE_MAXMIND_ACCOUNT_ID and DISCOURSE_MAXMIND_LICENSE_KEY to
+    $web_file has failed! This indicates either that your $web_file is very
+    old or otherwise not what the script expects or that there is a bug in
+    this script. The best solution for a novice is to delete $web_file and
+    start over. An expert might prefer to edit $web_file by hand.
 
 EOF
     read -p "Press return to continue or control-c to quit..."
@@ -463,15 +470,23 @@ ask_user_for_config() {
     local letsencrypt_status="Enter 'OFF' to disable."
   fi
 
+  read_config "DISCOURSE_MAXMIND_ACCOUNT_ID"
+  local maxmind_account_id=$read_config_result
+  if [ -z $maxmind_account_id ]
+  then
+    maxmind_account_id="123456"
+  fi
+
+  if [ "$maxmind_account_id" == "123456" ]
+  then
+    local maxmind_status="ENTER to continue without MAXMIND GeoLite2 geolocation database"
+  fi
+
   read_config "DISCOURSE_MAXMIND_LICENSE_KEY"
   local maxmind_license_key=$read_config_result
   if [ -z $maxmind_license_key ]
   then
     maxmind_license_key="1234567890123456"
-  fi
-  if [ "$maxmind_license_key" == "1234567890123456" ]
-  then
-    local maxmind_status="ENTER to continue without MAXMIND GeoLite2 geolocation database"
   fi
 
   local new_value=""
@@ -604,12 +619,21 @@ ask_user_for_config() {
       fi
     fi
 
-    read_config "DISCOURSE_MAXMIND_LICENSE_KEY"
-    local maxmind_license_key=$read_config_result
-    read -p "Optional Maxmind License key ($maxmind_status) [$maxmind_license_key]: " new_value
+    read_config "DISCOURSE_MAXMIND_ACCOUNT_ID"
+    local maxmind_account_id=$read_config_result
+    read -p "Optional MaxMind Account ID ($maxmind_status) [$maxmind_account_id]: " new_value
     if [ ! -z "$new_value" ]
     then
-      maxmind_license_key="$new_value"
+      maxmind_account_id="$new_value"
+
+      read_config "DISCOURSE_MAXMIND_LICENSE_KEY"
+      local maxmind_license_key=$read_config_result
+      read -p "MaxMind License key [$maxmind_license_key]: " new_value
+
+      if [ ! -z "$new_value" ]
+      then
+        maxmind_license_key="$new_value"
+      fi
     fi
 
     echo -e "\nDoes this look right?\n"
@@ -626,11 +650,18 @@ ask_user_for_config() {
       echo "Let's Encrypt : $letsencrypt_account_email"
     fi
 
+    if [ "$maxmind_account_id" != "123456" ]
+    then
+      echo "MaxMind account ID: $maxmind_account_id"
+    else
+      echo "MaxMind account ID: (unset)"
+    fi
+
     if [ "$maxmind_license_key" != "1234567890123456" ]
     then
-      echo "Maxmind license: $maxmind_license_key"
+      echo "MaxMind license key: $maxmind_license_key"
     else
-      echo "Maxmind license: (unset)"
+      echo "MaxMind license key: (unset)"
     fi
 
     echo ""
@@ -780,6 +811,19 @@ ask_user_for_config() {
   fi
 
   echo
+
+  if [ $maxmind_account_id != "123456" ]
+  then
+    sed -i -e "s/^.*DISCOURSE_MAXMIND_ACCOUNT_ID:.*/  DISCOURSE_MAXMIND_ACCOUNT_ID: $maxmind_account_id/w $changelog" $web_file
+    if [ -s $changelog ]
+    then
+      rm $changelog
+    else
+      echo "DISCOURSE_MAXMIND_ACCOUNT_ID change failed."
+      update_ok="n"
+    fi
+  fi
+
   if [ $maxmind_license_key != "1234567890123456" ]
   then
     sed -i -e "s/^.*DISCOURSE_MAXMIND_LICENSE_KEY:.*/  DISCOURSE_MAXMIND_LICENSE_KEY: $maxmind_license_key/w $changelog" $web_file
@@ -884,16 +928,16 @@ then
   DATE=`date +"%Y-%m-%d-%H%M%S"`
   BACKUP=$app_name.yml.$DATE.bak
   echo Saving old file as $BACKUP
-  cp $web_file containers/$BACKUP
+  install -m0600 $web_file containers/$BACKUP
   if [ "$DEBUG" != "1" ]
   then
     echo "Stopping existing container in 5 seconds or Control-C to cancel."
     sleep 5
+    ./launcher stop $app_name
   else
     echo "DEBUG MODE ON. Not stopping the container."
   fi
-  ./launcher stop $app_name
-  assert_maxmind_license_key
+  assert_maxmind_envs
   assert_notification_email
   assert_smtp_domain
   echo
@@ -902,7 +946,7 @@ else
   then
     check_ports
   fi
-  cp -v $web_template $web_file
+  install -v -m0600 $web_template $web_file
   if [ "$data_name" == "data" ]
   then
     echo "--------------------------------------------------"
@@ -918,7 +962,7 @@ else
       echo "Problem changing DISCOURSE_DB_PASSWORD" in $web_file
     fi
 
-    cp -v $data_template $data_file
+    install -v -m0600 $data_template $data_file
     quote=\'
     sed -i -e "s/password ${quote}SOME_SECRET${quote}/password '$DISCOURSE_DB_PASSWORD'/w $changelog" $data_file
     if  [ -s $changelog ]

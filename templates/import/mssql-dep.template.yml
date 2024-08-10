@@ -8,7 +8,7 @@ hooks:
     - exec:
         cd: /tmp
         cmd:
-          - wget -O freetds.tar.gz http://www.freetds.org/files/stable/freetds-1.00.91.tar.gz
+          - wget -q -O freetds.tar.gz http://www.freetds.org/files/stable/freetds-1.00.91.tar.gz
           - tar -xzf freetds.tar.gz
     - exec:
         cd: /tmp/freetds-*
@@ -22,4 +22,4 @@ hooks:
         cmd:
           - echo "gem 'tiny_tds'" >> Gemfile
           - su discourse -c 'bundle config unset deployment'
-          - su discourse -c 'bundle install --no-deployment --path vendor/bundle --jobs 4 --without test development'
+          - su discourse -c 'bundle install --no-deployment --path vendor/bundle --jobs $(($(nproc) - 1)) --without test development'

@@ -1,20 +1,64 @@
 # simple build file to be used locally by Sam
 #
-require 'pty'
-require 'optparse'
+require "pty"
+require "optparse"
 
 images = {
-  base: { name: 'base', tag: "discourse/base:build", squash: true },
-  discourse_test_build: { name: 'discourse_test', tag: "discourse/discourse_test:build", squash: false},
-  discourse_test_public: { name: 'discourse_test', tag: "discourse/discourse_test:release", squash: true, extra_args: ' --build-arg tag=release '},
-  discourse_dev: { name: 'discourse_dev', tag: "discourse/discourse_dev:build", squash: false },
+  base_slim: {
+    name: "base",
+    tag: "discourse/base:build_slim",
+    extra_args: "-f slim.Dockerfile",
+  },
+  base_slim_bookworm: {
+    name: "base",
+    tag: "discourse/base:build_slim_bookworm",
+    extra_args: "-f slim.Dockerfile --build-arg=\"DEBIAN_RELEASE=bookworm\"",
+  },
+  base_slim_arm64: {
+    name: "base",
+    tag: "discourse/base:build_slim_arm64",
+    extra_args: "-f slim.Dockerfile --platform linux/arm64",
+  },
+  base: {
+    name: "base",
+    tag: "discourse/base:build",
+    extra_args: "-f release.Dockerfile",
+  },
+  base_bookworm: {
+    name: "base",
+    tag: "discourse/base:build_bookworm",
+    extra_args: "-f release.Dockerfile --build-arg=\"tag=build_slim_bookworm\"",
+  },
+  base_arm64: {
+    name: "base",
+    tag: "discourse/base:build_arm64",
+    extra_args: "-f release.Dockerfile --platform linux/arm64 --build-arg=\"tag=build_slim_arm64\"",
+  },
+  discourse_test_build: {
+    name: "discourse_test",
+    tag: "discourse/discourse_test:build",
+  },
+  discourse_test_build_bookworm: {
+    name: "discourse_test",
+    tag: "discourse/discourse_test:build_bookworm",
+    extra_args: "--build-arg=\"from_tag=build_bookworm\"",
+  },
+  discourse_test_build_arm64: {
+    name: "discourse_test",
+    tag: "discourse/discourse_test:build_arm64",
+    extra_args: "--platform linux/arm64 --build-arg=\"from_tag=build_arm64\"",
+  },
+  discourse_dev: {
+    name: "discourse_dev",
+    tag: "discourse/discourse_dev:build",
+  },
 }
 
 def run(command)
   lines = []
-  PTY.spawn(command) do |stdin, stdout, pid|
+  PTY.spawn(command) do |stdout, stdin, pid|
     begin
-      stdin.each do |line|
+      stdout.each do |line|
         lines << line
         puts line
       end
@@ -29,20 +73,43 @@ def run(command)
   lines
 end
 
-def build(image)
-  lines = run("cd #{image[:name]} && docker build . --no-cache --tag #{image[:tag]} #{image[:squash] ? '--squash' : ''} #{image[:extra_args] ? image[:extra_args] : ''}")
-  raise "Error building the image for #{image[:name]}: #{lines[-1]}" if lines[-1] =~ /successfully built/
+def build(image, cli_args)
+  lines =
+    run(
+      "cd #{image[:name]} && docker buildx build . --load --no-cache --tag #{image[:tag]} #{image[:extra_args] ? image[:extra_args] : ""} #{cli_args}",
+    )
+  if lines[-1] =~ /successfully built/
+    raise "Error building the image for #{image[:name]}: #{lines[-1]}"
+  end
 end
 
 def dev_deps()
-  run("sed -e 's/\(db_name: discourse\)/\1_development/' ../templates/postgres.template.yml > discourse_dev/postgres.template.yml")
+  run(
+    "sed -e 's/\(db_name: discourse\)/\1_development/' ../templates/postgres.template.yml > discourse_dev/postgres.template.yml",
+  )
   run("cp ../templates/redis.template.yml discourse_dev/redis.template.yml")
+  run("cp base/install-rust discourse_dev/install-rust")
 end
 
-image = ARGV[0].intern
-raise 'Image not found' unless images.include?(image)
+if ARGV.length == 0
+  puts <<~TEXT
+    Usage:
+    ruby auto_build.rb IMAGE
 
-puts "Building #{images[image]}"
-dev_deps() if image == :discourse_dev
+    Available images:
+    #{images.keys.join(", ")}
+  TEXT
+  exit 1
+else
+  image = ARGV[0].to_sym
 
-build(images[image])
+  if !images.include?(image)
+    $stderr.puts "Image not found"
+    exit 1
+  end
+
+  puts "Building #{images[image]}"
+  dev_deps() if image == :discourse_dev
+
+  build(images[image], ARGV[1..-1].join(" "))
+end
